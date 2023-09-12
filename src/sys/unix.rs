@@ -53,7 +53,9 @@ use libc::{c_void, in6_addr, in_addr};
 
 #[cfg(not(target_os = "redox"))]
 use crate::RecvFlags;
-use crate::{Domain, Protocol, SockAddr, TcpKeepalive, Type};
+#[cfg(not(target_os = "vita"))]
+use crate::TcpKeepalive;
+use crate::{Domain, Protocol, SockAddr, Type};
 
 pub(crate) use libc::c_int;
 
@@ -89,6 +91,8 @@ pub(crate) use libc::IP_HDRINCL;
     target_os = "solaris",
     target_os = "haiku",
     target_os = "nto",
+    target_os = "espidf",
+    target_os = "vita",
 )))]
 pub(crate) use libc::IP_RECVTOS;
 #[cfg(not(any(
@@ -117,6 +121,8 @@ pub(crate) use libc::{
     target_os = "redox",
     target_os = "fuchsia",
     target_os = "nto",
+    target_os = "espidf",
+    target_os = "vita",
 )))]
 pub(crate) use libc::{
     ip_mreq_source as IpMreqSource, IP_ADD_SOURCE_MEMBERSHIP, IP_DROP_SOURCE_MEMBERSHIP,
@@ -170,7 +176,9 @@ use libc::TCP_KEEPALIVE as KEEPALIVE_TIME;
     target_vendor = "apple",
     target_os = "haiku",
     target_os = "openbsd",
-    target_os = "nto",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "vita",
 )))]
 use libc::TCP_KEEPIDLE as KEEPALIVE_TIME;
 
@@ -230,8 +238,10 @@ type IovLen = usize;
     target_os = "netbsd",
     target_os = "openbsd",
     target_os = "solaris",
-    target_os = "nto",
-    target_vendor = "apple",
+    target_os = "tvos",
+    target_os = "watchos",
+    target_os = "espidf",
+    target_os = "vita",
 ))]
 type IovLen = c_int;
 
@@ -608,7 +618,8 @@ pub(crate) fn socket(family: c_int, ty: c_int, protocol: c_int) -> io::Result<So
     syscall!(socket(family, ty, protocol))
 }
 
-#[cfg(feature = "all")]
+#[cfg(all(feature = "all", unix, not(target_os = "vita")))]
+#[cfg_attr(docsrs, doc(cfg(all(feature = "all", unix, not(target_os = "vita")))))]
 pub(crate) fn socketpair(family: c_int, ty: c_int, protocol: c_int) -> io::Result<[Socket; 2]> {
     let mut fds = [0, 0];
     syscall!(socketpair(family, ty, protocol, fds.as_mut_ptr())).map(|_| fds)
@@ -704,11 +715,31 @@ pub(crate) fn try_clone(fd: Socket) -> io::Result<Socket> {
     syscall!(fcntl(fd, libc::F_DUPFD_CLOEXEC, 0))
 }
 
+#[cfg(target_os = "vita")]
+pub(crate) fn nonblocking(fd: Socket) -> io::Result<bool> {
+    unsafe {
+        getsockopt::<Bool>(fd, libc::SOL_SOCKET, libc::SO_NONBLOCK).map(|non_block| non_block != 0)
+    }
+}
+
+#[cfg(not(target_os = "vita"))]
 pub(crate) fn set_nonblocking(fd: Socket, nonblocking: bool) -> io::Result<()> {
     if nonblocking {
         fcntl_add(fd, libc::F_GETFL, libc::F_SETFL, libc::O_NONBLOCK)
     } else {
         fcntl_remove(fd, libc::F_GETFL, libc::F_SETFL, libc::O_NONBLOCK)
+    }
+}
+
+#[cfg(target_os = "vita")]
+pub(crate) fn set_nonblocking(fd: Socket, nonblocking: bool) -> io::Result<()> {
+    unsafe {
+        setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_NONBLOCK,
+            nonblocking as libc::c_int,
+        )
     }
 }
 
@@ -882,7 +913,7 @@ fn from_timeval(duration: libc::timeval) -> Option<Duration> {
         None
     } else {
         let sec = duration.tv_sec as u64;
-        let nsec = (duration.tv_usec as u32) * 1000;
+        let nsec = duration.tv_usec as u32;
         Some(Duration::new(sec, nsec))
     }
 }
@@ -913,8 +944,17 @@ fn into_timeval(duration: Option<Duration>) -> libc::timeval {
     }
 }
 
-#[cfg(feature = "all")]
-#[cfg(not(any(target_os = "haiku", target_os = "openbsd")))]
+#[cfg(all(
+    feature = "all",
+    not(any(target_os = "haiku", target_os = "openbsd", target_os = "vita"))
+))]
+#[cfg_attr(
+    docsrs,
+    doc(cfg(all(
+        feature = "all",
+        not(any(target_os = "haiku", target_os = "openbsd", target_os = "vita"))
+    )))
+)]
 pub(crate) fn keepalive_time(fd: Socket) -> io::Result<Duration> {
     unsafe {
         getsockopt::<c_int>(fd, IPPROTO_TCP, KEEPALIVE_TIME)
@@ -923,8 +963,14 @@ pub(crate) fn keepalive_time(fd: Socket) -> io::Result<Duration> {
 }
 
 #[allow(unused_variables)]
+#[cfg(not(target_os = "vita"))]
 pub(crate) fn set_tcp_keepalive(fd: Socket, keepalive: &TcpKeepalive) -> io::Result<()> {
-    #[cfg(not(any(target_os = "haiku", target_os = "openbsd", target_os = "nto")))]
+    #[cfg(not(any(
+        target_os = "haiku",
+        target_os = "openbsd",
+        target_os = "nto",
+        target_os = "vita"
+    )))]
     if let Some(time) = keepalive.time {
         let secs = into_secs(time);
         unsafe { setsockopt(fd, libc::IPPROTO_TCP, KEEPALIVE_TIME, secs)? }
@@ -960,12 +1006,18 @@ pub(crate) fn set_tcp_keepalive(fd: Socket, keepalive: &TcpKeepalive) -> io::Res
     Ok(())
 }
 
-#[cfg(not(any(target_os = "haiku", target_os = "openbsd", target_os = "nto")))]
+#[cfg(not(any(
+    target_os = "haiku",
+    target_os = "openbsd",
+    target_os = "nto",
+    target_os = "vita"
+)))]
 fn into_secs(duration: Duration) -> c_int {
     min(duration.as_secs(), c_int::max_value() as u64) as c_int
 }
 
 /// Add `flag` to the current set flags of `F_GETFD`.
+#[cfg(not(target_os = "vita"))]
 fn fcntl_add(fd: Socket, get_cmd: c_int, set_cmd: c_int, flag: c_int) -> io::Result<()> {
     let previous = syscall!(fcntl(fd, get_cmd))?;
     let new = previous | flag;
@@ -978,6 +1030,7 @@ fn fcntl_add(fd: Socket, get_cmd: c_int, set_cmd: c_int, flag: c_int) -> io::Res
 }
 
 /// Remove `flag` to the current set flags of `F_GETFD`.
+#[cfg(not(target_os = "vita"))]
 fn fcntl_remove(fd: Socket, get_cmd: c_int, set_cmd: c_int, flag: c_int) -> io::Result<()> {
     let previous = syscall!(fcntl(fd, get_cmd))?;
     let new = previous & !flag;
@@ -1056,6 +1109,8 @@ pub(crate) fn from_in6_addr(addr: in6_addr) -> Ipv6Addr {
     target_os = "redox",
     target_os = "solaris",
     target_os = "nto",
+    target_os = "espidf",
+    target_os = "vita",
 )))]
 pub(crate) fn to_mreqn(
     multiaddr: &Ipv4Addr,
@@ -1142,12 +1197,22 @@ impl crate::Socket {
     /// # Notes
     ///
     /// On supported platforms you can use [`Type::cloexec`].
-    #[cfg(feature = "all")]
+    #[cfg_attr(
+        any(
+            target_os = "ios",
+            target_os = "macos",
+            target_os = "tvos",
+            target_os = "watchos"
+        ),
+        allow(rustdoc::broken_intra_doc_links)
+    )]
+    #[cfg(all(feature = "all", not(target_os = "vita")))]
     #[cfg_attr(docsrs, doc(cfg(all(feature = "all", unix))))]
     pub fn set_cloexec(&self, close_on_exec: bool) -> io::Result<()> {
         self._set_cloexec(close_on_exec)
     }
 
+    #[cfg(not(target_os = "vita"))]
     pub(crate) fn _set_cloexec(&self, close_on_exec: bool) -> io::Result<()> {
         if close_on_exec {
             fcntl_add(
@@ -1586,7 +1651,7 @@ impl crate::Socket {
     /// Sets the value for the `SO_SETFIB` option on this socket.
     ///
     /// Bind socket to the specified forwarding table (VRF) on a FreeBSD.
-    #[cfg(all(feature = "all", any(target_os = "freebsd")))]
+    #[cfg(all(feature = "all", target_os = "freebsd"))]
     #[cfg_attr(docsrs, doc(cfg(all(feature = "all", any(target_os = "freebsd")))))]
     pub fn set_fib(&self, fib: u32) -> io::Result<()> {
         syscall!(setsockopt(

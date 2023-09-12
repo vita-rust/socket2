@@ -146,8 +146,8 @@ impl Socket {
     ///
     /// This function sets the same flags as in done for [`Socket::new`],
     /// [`Socket::pair_raw`] can be used if you don't want to set those flags.
-    #[cfg(any(doc, all(feature = "all", unix)))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "all", unix))))]
+    #[cfg(all(feature = "all", unix, not(target_os = "vita")))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "all", unix, not(target_os = "vita")))))]
     pub fn pair(
         domain: Domain,
         ty: Type,
@@ -163,8 +163,8 @@ impl Socket {
     /// Creates a pair of sockets which are connected to each other.
     ///
     /// This function corresponds to `socketpair(2)`.
-    #[cfg(any(doc, all(feature = "all", unix)))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "all", unix))))]
+    #[cfg(all(feature = "all", unix, not(target_os = "vita")))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "all", unix, not(target_os = "vita")))))]
     pub fn pair_raw(
         domain: Domain,
         ty: Type,
@@ -343,6 +343,19 @@ impl Socket {
     /// <https://docs.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-wsaduplicatesocketw>.
     pub fn try_clone(&self) -> io::Result<Socket> {
         sys::try_clone(self.as_raw()).map(Socket::from_raw)
+    }
+
+    /// Returns true if this socket is set to nonblocking mode, false otherwise.
+    ///
+    /// # Notes
+    ///
+    /// On Unix this corresponds to calling `fcntl` returning the value of
+    /// `O_NONBLOCK`.
+    ///
+    /// On Windows it is not possible retrieve the nonblocking mode status.
+    #[cfg(target_os = "vita")]
+    pub fn nonblocking(&self) -> io::Result<bool> {
+        sys::nonblocking(self.as_raw())
     }
 
     /// Moves this TCP stream into or out of nonblocking mode.
@@ -729,6 +742,8 @@ fn set_common_flags(socket: Socket) -> io::Result<Socket> {
             target_os = "linux",
             target_os = "netbsd",
             target_os = "openbsd",
+            target_os = "espidf",
+            target_os = "vita",
         ))
     ))]
     socket._set_cloexec(true)?;
@@ -1166,6 +1181,8 @@ impl Socket {
         target_os = "redox",
         target_os = "solaris",
         target_os = "nto",
+        target_os = "espidf",
+        target_os = "vita",
     )))]
     pub fn join_multicast_v4_n(
         &self,
@@ -1196,6 +1213,8 @@ impl Socket {
         target_os = "redox",
         target_os = "solaris",
         target_os = "nto",
+        target_os = "espidf",
+        target_os = "vita",
     )))]
     pub fn leave_multicast_v4_n(
         &self,
@@ -1228,6 +1247,8 @@ impl Socket {
         target_os = "redox",
         target_os = "fuchsia",
         target_os = "nto",
+        target_os = "espidf",
+        target_os = "vita",
     )))]
     pub fn join_ssm_v4(
         &self,
@@ -1263,6 +1284,8 @@ impl Socket {
         target_os = "redox",
         target_os = "fuchsia",
         target_os = "nto",
+        target_os = "espidf",
+        target_os = "vita",
     )))]
     pub fn leave_ssm_v4(
         &self,
@@ -1439,6 +1462,8 @@ impl Socket {
         target_os = "solaris",
         target_os = "windows",
         target_os = "nto",
+        target_os = "espidf",
+        target_os = "vita",
     )))]
     pub fn set_recv_tos(&self, recv_tos: bool) -> io::Result<()> {
         let recv_tos = if recv_tos { 1 } else { 0 };
@@ -1468,6 +1493,8 @@ impl Socket {
         target_os = "solaris",
         target_os = "windows",
         target_os = "nto",
+        target_os = "espidf",
+        target_os = "vita",
     )))]
     pub fn recv_tos(&self) -> io::Result<bool> {
         unsafe {
@@ -1680,18 +1707,25 @@ impl Socket {
     ///
     /// This returns the value of `TCP_KEEPALIVE` on macOS and iOS and `TCP_KEEPIDLE` on all other
     /// supported Unix operating systems.
-    #[cfg(any(
-        doc,
-        all(
-            feature = "all",
-            not(any(windows, target_os = "haiku", target_os = "openbsd"))
-        )
+    #[cfg(all(
+        feature = "all",
+        not(any(
+            windows,
+            target_os = "haiku",
+            target_os = "openbsd",
+            target_os = "vita"
+        ))
     ))]
     #[cfg_attr(
         docsrs,
         doc(cfg(all(
             feature = "all",
-            not(any(windows, target_os = "haiku", target_os = "openbsd"))
+            not(any(
+                windows,
+                target_os = "haiku",
+                target_os = "openbsd",
+                target_os = "vita"
+            ))
         )))
     )]
     pub fn keepalive_time(&self) -> io::Result<Duration> {
@@ -1820,8 +1854,14 @@ impl Socket {
     /// # Ok(()) }
     /// ```
     ///
+    #[cfg_attr(target_os = "vita", allow(dead_code))]
     pub fn set_tcp_keepalive(&self, params: &TcpKeepalive) -> io::Result<()> {
         self.set_keepalive(true)?;
+
+        #[cfg(target_os = "vita")]
+        return Ok(());
+
+        #[cfg(not(target_os = "vita"))]
         sys::set_tcp_keepalive(self.as_raw(), params)
     }
 

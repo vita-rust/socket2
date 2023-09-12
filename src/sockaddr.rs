@@ -225,6 +225,9 @@ impl From<SocketAddrV4> for SockAddr {
         let sockaddr_in = sockaddr_in {
             sin_family: AF_INET as sa_family_t,
             sin_port: addr.port().to_be(),
+
+            #[cfg(target_os = "vita")]
+            sin_vport: addr.port().to_be(),
             sin_addr: crate::sys::to_in_addr(addr.ip()),
             sin_zero: Default::default(),
             #[cfg(any(
@@ -234,7 +237,8 @@ impl From<SocketAddrV4> for SockAddr {
                 target_os = "ios",
                 target_os = "macos",
                 target_os = "netbsd",
-                target_os = "openbsd"
+                target_os = "openbsd",
+                target_os = "vita"
             ))]
             sin_len: 0,
         };
@@ -260,6 +264,8 @@ impl From<SocketAddrV6> for SockAddr {
         let sockaddr_in6 = sockaddr_in6 {
             sin6_family: AF_INET6 as sa_family_t,
             sin6_port: addr.port().to_be(),
+            #[cfg(target_os = "vita")]
+            sin6_vport: addr.port().to_be(),
             sin6_addr: crate::sys::to_in6_addr(addr.ip()),
             sin6_flowinfo: addr.flowinfo(),
             #[cfg(unix)]
@@ -273,7 +279,8 @@ impl From<SocketAddrV6> for SockAddr {
                 target_os = "ios",
                 target_os = "macos",
                 target_os = "netbsd",
-                target_os = "openbsd"
+                target_os = "openbsd",
+                target_os = "vita"
             ))]
             sin6_len: 0,
             #[cfg(any(target_os = "solaris", target_os = "illumos"))]
