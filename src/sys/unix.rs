@@ -913,7 +913,7 @@ fn from_timeval(duration: libc::timeval) -> Option<Duration> {
         None
     } else {
         let sec = duration.tv_sec as u64;
-        let nsec = duration.tv_usec as u32;
+        let nsec = (duration.tv_usec as u32) * 1000;
         Some(Duration::new(sec, nsec))
     }
 }
